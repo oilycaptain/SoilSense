@@ -1,0 +1,432 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verified() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function assignmentPath() {
+      return /databases/$(database)/documents/system/device_assignment;
+    }
+
+    function deletedPath(uid) {
+      return /databases/$(database)/documents/deleted_accounts/$(uid);
+    }
+
+    function hasUserProfile(uid) {
+      return exists(userPath(uid));
+    }
+
+    function userProfile(uid) {
+      return get(userPath(uid));
+    }
+
+    function validMobileRole(role) {
+      return role in ['farmer', 'technician'];
+    }
+
+    function validStoredRole(role) {
+      return role in ['farmer', 'technician', 'admin'];
+    }
+
+    function isActiveMobileUser() {
+      return verified()
+        && hasUserProfile(request.auth.uid)
+        && userProfile(request.auth.uid).data.active == true
+        && validMobileRole(userProfile(request.auth.uid).data.role);
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && hasUserProfile(request.auth.uid)
+        && userProfile(request.auth.uid).data.active == true
+        && userProfile(request.auth.uid).data.role == 'admin';
+    }
+
+    function isCurrentOwner() {
+      return isActiveMobileUser()
+        && exists(assignmentPath())
+        && get(assignmentPath()).data.currentOwnerUid == request.auth.uid;
+    }
+
+    function ownsExisting() {
+      return isActiveMobileUser() && resource.data.userId == request.auth.uid;
+    }
+
+    function ownsIncoming() {
+      return isActiveMobileUser() && request.resource.data.userId == request.auth.uid;
+    }
+
+    function validProfileShape(uid) {
+      return request.resource.data.uid == uid
+        && request.resource.data.email is string
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 100
+        && validStoredRole(request.resource.data.role)
+        && request.resource.data.active is bool;
+    }
+
+    function validPrivateSoilReading() {
+      return request.resource.data.keys().hasAll([
+          'hardwareFingerprint', 'ownerUid',
+          'nitrogen', 'phosphorus', 'potassium', 'ph', 'moisture',
+          'soilTemperature', 'electricalConductivity',
+          'source', 'authenticationMode', 'firmwareVersion', 'rssi',
+          'timestamp'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'fieldId', 'hardwareFingerprint', 'ownerUid',
+          'nitrogen', 'phosphorus', 'potassium', 'ph', 'moisture',
+          'soilTemperature', 'electricalConductivity',
+          'source', 'authenticationMode', 'firmwareVersion', 'rssi',
+          'timestamp'
+        ])
+        && (
+          !request.resource.data.keys().hasAny(['fieldId'])
+          || (
+            request.resource.data.fieldId is string
+            && request.resource.data.fieldId.size() <= 80
+          )
+        )
+        && request.resource.data.hardwareFingerprint is string
+        && request.resource.data.hardwareFingerprint.size() == 12
+        && request.resource.data.ownerUid is string
+        && request.resource.data.ownerUid.size() >= 1
+        && request.resource.data.ownerUid.size() <= 128
+        && request.resource.data.nitrogen is number
+        && request.resource.data.nitrogen >= 0
+        && request.resource.data.nitrogen <= 2000
+        && request.resource.data.phosphorus is number
+        && request.resource.data.phosphorus >= 0
+        && request.resource.data.phosphorus <= 2000
+        && request.resource.data.potassium is number
+        && request.resource.data.potassium >= 0
+        && request.resource.data.potassium <= 3000
+        && request.resource.data.ph is number
+        && request.resource.data.ph >= 0
+        && request.resource.data.ph <= 14
+        && request.resource.data.moisture is number
+        && request.resource.data.moisture >= 0
+        && request.resource.data.moisture <= 100
+        && request.resource.data.soilTemperature is number
+        && request.resource.data.soilTemperature >= -30
+        && request.resource.data.soilTemperature <= 80
+        && request.resource.data.electricalConductivity is int
+        && request.resource.data.electricalConductivity >= 0
+        && request.resource.data.electricalConductivity <= 50000
+        && request.resource.data.source == 'esp32_https'
+        && request.resource.data.authenticationMode == 'open_firestore_assigned_owner'
+        && request.resource.data.firmwareVersion is string
+        && request.resource.data.firmwareVersion.size() >= 1
+        && request.resource.data.firmwareVersion.size() <= 80
+        && request.resource.data.rssi is int
+        && request.resource.data.rssi >= -127
+        && request.resource.data.rssi <= 0
+        && request.resource.data.timestamp is timestamp;
+    }
+
+    function validAssignment() {
+      return request.resource.data.keys().hasAll(['currentOwnerUid', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['currentOwnerUid', 'updatedAt'])
+        && request.resource.data.currentOwnerUid is string
+        && request.resource.data.currentOwnerUid.size() <= 128
+        && request.resource.data.updatedAt is timestamp
+        && (
+          request.resource.data.currentOwnerUid == ''
+          || (
+            exists(userPath(request.resource.data.currentOwnerUid))
+            && get(userPath(request.resource.data.currentOwnerUid)).data.active == true
+            && validMobileRole(get(userPath(request.resource.data.currentOwnerUid)).data.role)
+          )
+        );
+    }
+
+    match /users/{uid} {
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && !exists(deletedPath(uid))
+        && request.resource.data.keys().hasAll([
+          'uid', 'name', 'email', 'role', 'active', 'isOwner', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid', 'name', 'email', 'role', 'active', 'isOwner', 'createdAt', 'updatedAt'
+        ])
+        && validProfileShape(uid)
+        && request.resource.data.email == request.auth.token.email
+        && validMobileRole(request.resource.data.role)
+        && request.resource.data.active == true
+        && request.resource.data.isOwner == false;
+
+      allow read: if (signedIn() && request.auth.uid == uid) || isAdmin();
+
+      allow update: if (
+        isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['name', 'role', 'active', 'isOwner', 'updatedAt'])
+        && validProfileShape(uid)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          !request.resource.data.keys().hasAny(['isOwner'])
+          || request.resource.data.isOwner is bool
+        )
+        && (
+          uid != request.auth.uid
+          || (
+            request.resource.data.role == 'admin'
+            && request.resource.data.active == true
+          )
+        )
+      ) || (
+        isActiveMobileUser()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['name', 'updatedAt'])
+        && validProfileShape(uid)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.active == resource.data.active
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          (
+            !resource.data.keys().hasAny(['isOwner'])
+            && !request.resource.data.keys().hasAny(['isOwner'])
+          )
+          || (
+            resource.data.keys().hasAny(['isOwner'])
+            && request.resource.data.isOwner == resource.data.isOwner
+          )
+        )
+      );
+
+      allow delete: if isAdmin() && uid != request.auth.uid;
+
+      match /preferences/{preferenceId} {
+        allow read: if (isActiveMobileUser() && request.auth.uid == uid) || isAdmin();
+        allow create, update: if isActiveMobileUser()
+          && request.auth.uid == uid
+          && (
+            (
+              preferenceId == 'app'
+              && request.resource.data.keys().hasAll(['darkMode', 'languageCode', 'updatedAt'])
+              && request.resource.data.keys().hasOnly(['darkMode', 'languageCode', 'updatedAt'])
+              && request.resource.data.darkMode is bool
+              && request.resource.data.languageCode in ['en', 'fil']
+              && request.resource.data.updatedAt is timestamp
+            )
+            ||
+            (
+              preferenceId == 'history'
+              && request.resource.data.keys().hasAll(['readingHistoryClearedAt', 'updatedAt'])
+              && request.resource.data.keys().hasOnly(['readingHistoryClearedAt', 'updatedAt'])
+              && request.resource.data.readingHistoryClearedAt is timestamp
+              && request.resource.data.updatedAt is timestamp
+            )
+          );
+        allow delete: if isActiveMobileUser() && request.auth.uid == uid;
+      }
+
+      match /push_tokens/{tokenId} {
+        allow read: if (isActiveMobileUser() && request.auth.uid == uid) || isAdmin();
+        allow create, update: if isActiveMobileUser()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasAll(['token', 'platform', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['token', 'platform', 'updatedAt'])
+          && request.resource.data.token is string
+          && request.resource.data.token.size() >= 20
+          && request.resource.data.token.size() <= 2048
+          && request.resource.data.platform in ['android', 'iOS', 'web', 'macOS', 'windows', 'linux']
+          && request.resource.data.updatedAt is timestamp;
+        allow delete: if (isActiveMobileUser() && request.auth.uid == uid) || isAdmin();
+      }
+    }
+
+    match /soil_readings/{readingId} {
+      allow read: if isAdmin() || (
+        isActiveMobileUser()
+        && resource.data.ownerUid == request.auth.uid
+      );
+
+      allow create: if request.auth == null
+        && validPrivateSoilReading()
+        && exists(assignmentPath())
+        && get(assignmentPath()).data.currentOwnerUid == request.resource.data.ownerUid
+        && exists(userPath(request.resource.data.ownerUid))
+        && get(userPath(request.resource.data.ownerUid)).data.active == true
+        && validMobileRole(get(userPath(request.resource.data.ownerUid)).data.role)
+        && get(userPath(request.resource.data.ownerUid)).data.isOwner == true;
+
+      allow update: if false;
+      allow delete: if isAdmin() || (
+        isActiveMobileUser()
+        && resource.data.ownerUid == request.auth.uid
+      );
+    }
+
+    match /soil_analyses/{analysisId} {
+      allow read: if ownsExisting() || isAdmin();
+      allow create, update: if false;
+      allow delete: if ownsExisting() || isAdmin();
+    }
+
+    match /alerts/{alertId} {
+      allow read: if ownsExisting() || isAdmin();
+      allow create: if ownsIncoming()
+        && request.resource.data.keys().hasAll([
+          'title', 'type', 'severity', 'category', 'message', 'currentValue',
+          'optimalRange', 'read', 'timestamp', 'userId'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'title', 'type', 'severity', 'category', 'message', 'currentValue',
+          'optimalRange', 'read', 'timestamp', 'userId'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 1
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.type is string
+        && request.resource.data.severity in ['low', 'medium', 'high']
+        && request.resource.data.category is string
+        && request.resource.data.message is string
+        && request.resource.data.currentValue is number
+        && request.resource.data.optimalRange is string
+        && request.resource.data.read == false
+        && request.resource.data.timestamp is timestamp;
+      allow delete: if ownsExisting() || isAdmin();
+      allow update: if isAdmin() || (
+        ownsExisting()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['read', 'readAt'])
+        && request.resource.data.read is bool
+        && (
+          !request.resource.data.keys().hasAny(['readAt'])
+          || request.resource.data.readAt is timestamp
+        )
+      );
+    }
+
+    match /reports/{reportId} {
+      allow read: if ownsExisting() || isAdmin();
+      allow create: if ownsIncoming();
+      allow update: if false;
+      allow delete: if ownsExisting() || isAdmin();
+    }
+
+    match /fields/{fieldId} {
+      allow read: if ownsExisting() || isAdmin();
+      allow create: if ownsIncoming();
+      allow update: if ownsExisting()
+        && request.resource.data.userId == resource.data.userId;
+      allow delete: if ownsExisting() || isAdmin();
+    }
+
+    match /deleted_accounts/{uid} {
+      allow read, create, delete: if isAdmin();
+      allow update: if false;
+    }
+
+    match /admin_audit_logs/{logId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /system/device_status {
+      allow read: if signedIn();
+
+      allow create: if request.auth == null
+        && request.resource.data.keys().hasAll([
+          'online', 'setupMode', 'scanning', 'scanDurationSeconds',
+          'lastSeen', 'rssi', 'hardwareFingerprint'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'online', 'setupMode', 'scanning', 'scanDurationSeconds',
+          'lastSeen', 'rssi', 'hardwareFingerprint'
+        ])
+        && request.resource.data.online is bool
+        && request.resource.data.setupMode is bool
+        && request.resource.data.scanning is bool
+        && request.resource.data.scanDurationSeconds is int
+        && request.resource.data.scanDurationSeconds >= 30
+        && request.resource.data.scanDurationSeconds <= 300
+        && request.resource.data.lastSeen is timestamp
+        && request.resource.data.rssi is int
+        && request.resource.data.rssi >= -127
+        && request.resource.data.rssi <= 0
+        && request.resource.data.hardwareFingerprint is string
+        && request.resource.data.hardwareFingerprint.size() == 12;
+
+      allow update: if request.auth == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'online', 'setupMode', 'scanning', 'scanDurationSeconds',
+          'lastSeen', 'rssi', 'hardwareFingerprint'
+        ])
+        && request.resource.data.online is bool
+        && request.resource.data.setupMode is bool
+        && request.resource.data.scanning is bool
+        && request.resource.data.scanDurationSeconds is int
+        && request.resource.data.scanDurationSeconds >= 30
+        && request.resource.data.scanDurationSeconds <= 300
+        && request.resource.data.lastSeen is timestamp
+        && request.resource.data.rssi is int
+        && request.resource.data.rssi >= -127
+        && request.resource.data.rssi <= 0
+        && request.resource.data.hardwareFingerprint is string
+        && request.resource.data.hardwareFingerprint.size() == 12;
+
+      allow delete: if false;
+    }
+
+    match /system/scan_settings {
+      allow get: if true;
+      allow list: if false;
+
+      allow create, update: if (isCurrentOwner() || isAdmin())
+        && request.resource.data.keys().hasAll(['durationSeconds', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['durationSeconds', 'updatedAt'])
+        && request.resource.data.durationSeconds is int
+        && request.resource.data.durationSeconds >= 30
+        && request.resource.data.durationSeconds <= 300
+        && request.resource.data.updatedAt is timestamp;
+
+      allow delete: if false;
+    }
+
+    match /system/device_assignment {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isAdmin() && validAssignment();
+      allow delete: if false;
+    }
+
+    match /devices/{deviceId} {
+      allow read, write: if false;
+    }
+
+    match /device_bindings/{bindingId} {
+      allow read, write: if false;
+    }
+
+    match /device_memberships/{membershipId} {
+      allow read, write: if false;
+    }
+
+    match /device_access_requests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

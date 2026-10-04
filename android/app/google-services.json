@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "166789957038",
+    "project_id": "soilsense-db59e",
+    "storage_bucket": "soilsense-db59e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:166789957038:android:4cbb947bcb35dee970b43f",
+        "android_client_info": {
+          "package_name": "com.soilsense.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBITS4jOOq6W40N_8NiqrEtUCWnDzv6rKQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

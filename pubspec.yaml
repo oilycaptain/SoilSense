@@ -1,0 +1,43 @@
+name: soilsense
+description: AI-Powered Soil Intelligence and Crop Management System
+version: 4.3.7+54
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Firebase
+  firebase_core: ^3.15.2
+  firebase_auth: ^5.7.0
+  cloud_firestore: ^5.6.12
+  firebase_messaging: ^15.2.10
+  flutter_local_notifications: ^18.0.1
+
+
+  # UI
+  fl_chart: ^0.68.0
+  intl: ^0.20.2
+  # Pinned for compatibility with Dart 3.10.x / Flutter 3.38.x.
+  # Do not add ^ here, or Pub may upgrade to releases requiring Dart 3.12+.
+  pdf: 3.12.0
+  printing: 5.14.3
+
+  # State Management
+  provider: ^6.1.1
+  shared_preferences: ^2.3.2
+
+  connectivity_plus: ^5.0.2
+  http: ^1.2.2
+  esp_smartconfig: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
